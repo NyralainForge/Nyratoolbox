@@ -20,4 +20,5 @@
 toolbox/
 ├── number_dictionary       # 生成 手机号/QQ号 或手机号/QQ号格式邮箱
 ├── SFZ_dictionary          # 生成 格式合法的 大陆身份证号码
+├── ShortID_dictionary      # 生成偶数长度的十六进制 ShortID 穷举列表
 └── README.md               # 项目根目录说明

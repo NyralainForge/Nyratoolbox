@@ -206,57 +206,48 @@ def parse_q_length(q_value: str | None) -> int | None:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="生成随机数字邮箱：普通模式或 QQ 数字邮箱模式"
-    )
+    parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "prefix",
-        nargs="?",
-        help="不使用 -dict / -q / -qn 时，直接输入 7 位数字作为第一部分"
+        nargs="?"
     )
 
     parser.add_argument(
         "-dict",
-        dest="dict_file",
-        help="挂载字典文件，每个值应为 7 位数字"
+        dest="dict_file"
     )
 
     parser.add_argument(
         "-n",
         dest="count",
         type=int,
-        default=1,
-        help="输出条目个数，默认为 1"
+        default=1
     )
 
     parser.add_argument(
         "-o",
-        dest="output",
-        help="输出文件路径，默认为桌面 out.txt"
+        dest="output"
     )
 
     parser.add_argument(
         "-m",
         dest="mail_suffix",
         nargs="?",
-        const="__RANDOM__",
-        help="邮箱后缀开关：不输入 -m 时不拼接后缀；单独输入 -m 时随机使用 @139.com / @163.com / @162.com；-m 携带参数时使用指定后缀，例如 @163.com 或 163.com"
+        const="__RANDOM__"
     )
 
     parser.add_argument(
         "-q",
         dest="q_value",
         nargs="?",
-        const="__AUTO__",
-        help="QQ 数字邮箱模式。单独使用随机 9-11 位；也可指定长度，例如：-q 10"
+        const="__AUTO__"
     )
 
     parser.add_argument(
         "-qn",
         dest="q_weighted",
-        action="store_true",
-        help="QQ 数字邮箱加权模式：10位50%，9位35%，11位10%，7-8位5%"
+        action="store_true"
     )
 
     args = parser.parse_args()

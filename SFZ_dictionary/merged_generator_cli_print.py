@@ -28,12 +28,8 @@ CHECK_CODE_MAP = {
 }
 
 
-
-# 通用工具函数
-
-
 def calculate_check_code(first_17_digits: str) -> str:
-    """根据前 17 位计算校验码。"""
+    """计算校验码。"""
     if len(first_17_digits) != 17:
         raise ValueError("用于计算校验码的字符串必须正好是 17 位。")
 
@@ -46,21 +42,12 @@ def calculate_check_code(first_17_digits: str) -> str:
 
 
 def get_default_output_path() -> Path:
-    """默认输出到当前用户桌面的 out.txt。"""
+    """默认输出路径。"""
     return Path.home() / "Desktop" / "out.txt"
 
 
 def get_default_date_range() -> tuple[str, str]:
-    """
-    获取默认日期范围。
-
-    正常情况下：
-      -ed 使用系统当前日期；
-      -sd 使用当前日期往前 30000 天。
-
-    如果系统日期年份小于 2025，认为系统时间可能异常；
-    在用户没有显式输入 -sd / -ed 时，继续使用默认值。
-    """
+    """默认日期范围。"""
     today = datetime.now()
 
     if today.year < 2025:
@@ -71,7 +58,7 @@ def get_default_date_range() -> tuple[str, str]:
 
 
 def parse_yyyymmdd(date_str: str) -> datetime:
-    """解析 8 位纯数字日期，格式 YYYYMMDD。"""
+    """解析日期。"""
     if len(date_str) != 8 or not date_str.isdigit():
         raise ValueError(f"日期必须是 8 位纯数字格式 YYYYMMDD：{date_str}")
 
@@ -82,10 +69,9 @@ def parse_yyyymmdd(date_str: str) -> datetime:
 
 
 def normalize_dictionary_token(raw_value: str) -> str:
-    """清理字典单元格中的常见包裹字符和不可见头部。"""
+    """清理字典字段。"""
     value = raw_value.strip().lstrip("\ufeff")
 
-    # 兼容 CSV 中常见的引号包裹。
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         value = value[1:-1].strip()
 
@@ -93,13 +79,12 @@ def normalize_dictionary_token(raw_value: str) -> str:
 
 
 def extract_dictionary_values_from_line(line: str, suffix: str) -> list[str]:
-    """从一行文本中提取候选 6 位字典值。"""
+    """提取字典值。"""
     stripped = line.strip().lstrip("\ufeff")
 
     if not stripped:
         return []
 
-    # 允许常见注释行，方便维护字典文件。
     if stripped.startswith("#") or stripped.startswith("//"):
         return []
 
@@ -113,13 +98,12 @@ def extract_dictionary_values_from_line(line: str, suffix: str) -> list[str]:
     if suffix in {".tsv", ".tab"}:
         return [normalize_dictionary_token(cell) for cell in line.split("\t")]
 
-    # .txt / .list / .dict / 无扩展名：兼容一行一个值，也兼容逗号、空白、分号分隔。
     normalized = stripped.replace(",", " ").replace(";", " ").replace("\t", " ")
     return [normalize_dictionary_token(part) for part in normalized.split()]
 
 
 def is_probable_header(value: str) -> bool:
-    """判断常见表头字段，避免 CSV/TXT 第一行写 code/six_code/area_code 时报错。"""
+    """判断表头。"""
     normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
     return normalized in {
         "code",
@@ -134,18 +118,7 @@ def is_probable_header(value: str) -> bool:
 
 
 def load_dictionary(file_path: str, expected_length: int = 6) -> list[str]:
-    """
-    读取第一部分的指定长度字典文件。
-
-    支持：
-      - .txt / .list / .dict / 无扩展名：一行一个值，或逗号/空白/分号分隔；
-      - .csv：按 CSV 规则读取，可含表头；
-      - .tsv / .tab：按制表符分隔读取；
-      - UTF-8 BOM / UTF-8-SIG 常见头部；
-      - # 或 // 开头的注释行。
-
-    只收集指定长度的纯数字字段；其他非空字段若不是表头，会报错以避免误读脏数据。
-    """
+    """读取字典文件。"""
     path = Path(file_path).expanduser()
 
     if not path.exists():
@@ -186,12 +159,8 @@ def load_dictionary(file_path: str, expected_length: int = 6) -> list[str]:
     return values
 
 
-
-# 日期与第三部分生成逻辑
-
-
 def random_date_normal(start_date_str: str, end_date_str: str) -> str:
-    """在两个日期之间按正态分布随机取日期，越靠近中间值概率越高。"""
+    """正态随机日期。"""
     start_date = parse_yyyymmdd(start_date_str)
     end_date = parse_yyyymmdd(end_date_str)
 
@@ -213,7 +182,7 @@ def random_date_normal(start_date_str: str, end_date_str: str) -> str:
 
 
 def random_date_uniform(start_date_str: str, end_date_str: str) -> str:
-    """在两个日期之间均匀随机取日期，每一天概率相同。"""
+    """均匀随机日期。"""
     start_date = parse_yyyymmdd(start_date_str)
     end_date = parse_yyyymmdd(end_date_str)
 
@@ -230,14 +199,7 @@ def generate_third_part(
     sequence_start: int | None = None,
     sequence_end: int | None = None,
 ) -> str:
-    """
-    第三部分生成逻辑。
-
-    默认逻辑：001-050 占 65%，051-100 占 35%。
-    指定 sequence_start 和 sequence_end 时：在指定闭区间内随机取值。
-
-    gender 为 M 时限制为奇数；gender 为 F 时限制为偶数；不传则不限制奇偶。
-    """
+    """生成第三部分。"""
     if (sequence_start is None) != (sequence_end is None):
         raise ValueError("-sn 和 -snd 必须同时指定，不能只指定其中一个。")
 
@@ -276,7 +238,7 @@ def generate_one_from_dict(
     sequence_start: int | None = None,
     sequence_end: int | None = None,
 ) -> str:
-    """从字典随机选择 6 位第一部分，生成一条完整结果。"""
+    """字典生成。"""
     part1 = random.choice(dict_6)
     return generate_one_from_part1(
         part1,
@@ -298,7 +260,7 @@ def generate_one_from_part1(
     sequence_start: int | None = None,
     sequence_end: int | None = None,
 ) -> str:
-    """使用指定 6 位第一部分生成一条完整结果。"""
+    """指定前缀生成。"""
     if len(part1) != 6 or not part1.isdigit():
         raise ValueError("生成单条模式需要提供 6 位数字，例如：110101")
 
@@ -317,57 +279,25 @@ def generate_one_from_part1(
     return first_17_digits + calculate_check_code(first_17_digits)
 
 
-
-# CLI 入口
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="非交互式生成器：携带 -dict 执行批量随机；不携带 -dict 默认执行生成单条。"
-    )
+    parser = argparse.ArgumentParser(add_help=False)
 
-    parser.add_argument(
-        "six_code",
-        nargs="?",
-        help="生成单条模式使用：6 位第一部分，例如 110101。",
-    )
-    parser.add_argument(
-        "-dict",
-        dest="dict_path",
-        metavar="DICT",
-        help="执行批量随机功能，并指定 6 位字典文件路径；支持 .txt/.csv/.tsv 等常见文本格式。",
-    )
-    parser.add_argument("-sd", default=None, help="指定开始日期，格式 YYYYMMDD。默认：系统日期往前 30000 天；若系统年份小于 2025 则默认 19610101。")
-    parser.add_argument("-ed", default=None, help="指定结束日期，格式 YYYYMMDD。默认：系统当前日期；若系统年份小于 2025 则默认 20261231。")
-    parser.add_argument(
-        "-norm",
-        action="store_true",
-        help="激活正态分布日期随机；不指定时使用均匀随机日期。",
-    )
-    parser.add_argument(
-        "-s",
-        choices=["M", "F", "m", "f"],
-        help="指定按性别限制奇偶性：M=奇数，F=偶数。不指定则不限制。",
-    )
-    parser.add_argument(
-        "-sn",
-        type=int,
-        default=None,
-        help="指定 3 位顺序码起始值，范围 1-999；需要与 -snd 同时使用。不指定时使用默认加权逻辑。",
-    )
-    parser.add_argument(
-        "-snd",
-        type=int,
-        default=None,
-        help="指定 3 位顺序码结束值，范围 1-999；需要与 -sn 同时使用。不指定时使用默认加权逻辑。",
-    )
-    parser.add_argument("-o", default=None, help="指定输出路径和文件名。")
-    parser.add_argument("-n", type=int, default=1, help="指定输出条目数量。默认：1。")
+    parser.add_argument("six_code", nargs="?")
+    parser.add_argument("-dict", dest="dict_path")
+    parser.add_argument("-sd", default=None)
+    parser.add_argument("-ed", default=None)
+    parser.add_argument("-norm", action="store_true")
+    parser.add_argument("-s", choices=["M", "F", "m", "f"])
+    parser.add_argument("-sn", type=int, default=None)
+    parser.add_argument("-snd", type=int, default=None)
+    parser.add_argument("-o", default=None)
+    parser.add_argument("-n", type=int, default=1)
 
     return parser
 
 
 def write_results(output_path: str | Path, results: list[str]) -> Path:
+    """写入结果。"""
     path = Path(output_path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -378,7 +308,6 @@ def write_results(output_path: str | Path, results: list[str]) -> Path:
     return path
 
 
-# 新增：去除重复结果，确保输出唯一条目
 def ensure_unique_results(results: list[str], count: int) -> list[str]:
     """去除重复结果。"""
     unique_results = list(dict.fromkeys(results))
@@ -407,7 +336,6 @@ def main(argv: list[str] | None = None) -> int:
         start_date_str = args.sd or default_sd
         end_date_str = args.ed or default_ed
 
-        # 提前校验日期，避免生成到一半才报错。
         start_date = parse_yyyymmdd(start_date_str)
         end_date = parse_yyyymmdd(end_date_str)
         if start_date > end_date:
@@ -472,7 +400,6 @@ def main(argv: list[str] | None = None) -> int:
                 count,
             )
 
-        # 生成单条模式：不指定 -o 且真的只生成 1 条时，直接打印结果到屏幕。
         if mode == "生成单条" and args.o is None and count == 1:
             print(results[0])
             return 0

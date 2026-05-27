@@ -1,19 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-   six_code       不携带 -dict 时使用，指定 6 位第一部分，执行生成单条功能
-   -dict DICT     执行批量随机功能，并指定 6 位字典文件路径
-   -sd            指定开始日期，格式 YYYYMMDD；不指定时默认系统日期往前 30000 天
-   -ed            指定结束日期，格式 YYYYMMDD；不指定时默认系统当前日期
-   -norm          激活正态分布日期随机；不指定时使用均匀随机日期
-   -s             指定按性别限制奇偶性：M=奇数，F=偶数；不指定则不限制
-   -sn            指定 3 位顺序码起始值，范围 1-999；需要与 -snd 同时使用
-   -snd           指定 3 位顺序码结束值，范围 1-999；需要与 -sn 同时使用
-   -o             指定输出路径和文件名
-   -n             指定输出条目数量；不指定默认 1
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -391,6 +378,21 @@ def write_results(output_path: str | Path, results: list[str]) -> Path:
     return path
 
 
+# 新增：去除重复结果，确保输出唯一条目
+def ensure_unique_results(results: list[str], count: int) -> list[str]:
+    """去除重复结果。"""
+    unique_results = list(dict.fromkeys(results))
+
+    if len(unique_results) != count:
+        raise ValueError(
+            f"生成结果去重后不足 {count} 条；"
+            f"当前仅得到 {len(unique_results)} 条唯一结果。"
+            "请扩大字典、日期范围、顺序码范围，或减少 -n 数量。"
+        )
+
+    return unique_results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -432,18 +434,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.dict_path:
             mode = "批量随机"
             dict_6 = load_dictionary(args.dict_path, 6)
-            results = [
-                generate_one_from_dict(
-                    dict_6=dict_6,
-                    start_date=start_date_str,
-                    end_date=end_date_str,
-                    gender=gender,
-                    use_normal_distribution=args.norm,
-                    sequence_start=args.sn,
-                    sequence_end=args.snd,
-                )
-                for _ in range(count)
-            ]
+            results = ensure_unique_results(
+                [
+                    generate_one_from_dict(
+                        dict_6=dict_6,
+                        start_date=start_date_str,
+                        end_date=end_date_str,
+                        gender=gender,
+                        use_normal_distribution=args.norm,
+                        sequence_start=args.sn,
+                        sequence_end=args.snd,
+                    )
+                    for _ in range(count)
+                ],
+                count,
+            )
         else:
             mode = "生成单条"
             if not args.six_code:
@@ -451,18 +456,21 @@ def main(argv: list[str] | None = None) -> int:
                     "生成单条模式需要提供 6 位数字，例如："
                     "python3 merged_generator_cli_print.py 110101 -sd 19990522 -ed 19990522"
                 )
-            results = [
-                generate_one_from_part1(
-                    part1=args.six_code,
-                    start_date=start_date_str,
-                    end_date=end_date_str,
-                    gender=gender,
-                    use_normal_distribution=args.norm,
-                    sequence_start=args.sn,
-                    sequence_end=args.snd,
-                )
-                for _ in range(count)
-            ]
+            results = ensure_unique_results(
+                [
+                    generate_one_from_part1(
+                        part1=args.six_code,
+                        start_date=start_date_str,
+                        end_date=end_date_str,
+                        gender=gender,
+                        use_normal_distribution=args.norm,
+                        sequence_start=args.sn,
+                        sequence_end=args.snd,
+                    )
+                    for _ in range(count)
+                ],
+                count,
+            )
 
         # 生成单条模式：不指定 -o 且真的只生成 1 条时，直接打印结果到屏幕。
         if mode == "生成单条" and args.o is None and count == 1:

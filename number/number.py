@@ -12,10 +12,7 @@ DEFAULT_SUFFIXES = ["@139.com", "@163.com", "@162.com"]
 
 
 def load_dict_file(file_path: str) -> list[str]:
-    """
-    读取 7 位数字字典文件。
-
-    """
+    """读取数字字典。"""
     path = Path(file_path)
 
     if not path.exists():
@@ -92,9 +89,7 @@ def load_dict_file(file_path: str) -> list[str]:
 
 
 def validate_prefix(prefix: str) -> str:
-    """
-    校验手动输入的第一部分。
-    """
+    """校验前缀。"""
     if not prefix.isdigit() or len(prefix) != 7:
         raise ValueError("第一部分必须是 7 位数字")
 
@@ -102,20 +97,17 @@ def validate_prefix(prefix: str) -> str:
 
 
 def normalize_suffix(mail_suffix: str | None) -> str | None:
-    """
-    规范化 -m 参数。
-
-    示例：
-    - @163.com -> @163.com
-    - 163.com  -> @163.com
-    """
+    """规范后缀。"""
     if mail_suffix is None:
         return None
+
+    if mail_suffix == "__RANDOM__":
+        return random.choice(DEFAULT_SUFFIXES)
 
     mail_suffix = mail_suffix.strip()
 
     if not mail_suffix:
-        raise ValueError("-m 后缀不能为空")
+        raise ValueError("-m 后缀不能为空；如果想随机默认后缀，请单独使用 -m")
 
     if not mail_suffix.startswith("@"):
         mail_suffix = "@" + mail_suffix
@@ -127,27 +119,18 @@ def normalize_suffix(mail_suffix: str | None) -> str | None:
 
 
 def generate_normal_email(prefixes: list[str], mail_suffix: str | None = None) -> str:
-    """
-    生成普通模式结果：
-    7 位前缀 + 4 位随机数字 + 邮箱后缀
-    """
+    """生成普通结果。"""
     prefix = random.choice(prefixes)
     suffix_number = f"{random.randint(0, 9999):04d}"
 
     if mail_suffix:
-        suffix_mail = mail_suffix
-    else:
-        suffix_mail = random.choice(DEFAULT_SUFFIXES)
+        return prefix + suffix_number + mail_suffix
 
-    return prefix + suffix_number + suffix_mail
+    return prefix + suffix_number
 
 
 def random_digits(length: int) -> str:
-    """
-    生成指定长度的随机数字。
-
-    第一位不为 0，避免出现“看起来不是 N 位”的结果。
-    """
+    """生成随机数字。"""
     if length <= 0:
         raise ValueError("数字长度必须大于 0")
 
@@ -158,24 +141,12 @@ def random_digits(length: int) -> str:
 
 
 def random_qq_length_normal() -> int:
-    """
-    -q 单独使用时：
-    随机 9 - 11 位数字。
-    """
+    """随机 QQ 长度。"""
     return random.randint(9, 11)
 
 
 def random_qq_length_weighted() -> int:
-    """
-    -qn 使用时：
-    随机 7 - 11 位数字。
-
-    权重：
-    - 10 位：50%
-    - 9 位：35%
-    - 11 位：10%
-    - 7 - 8 位：5%
-    """
+    """加权 QQ 长度。"""
     bucket = random.choices(
         population=["10", "9", "11", "7-8"],
         weights=[50, 35, 10, 5],
@@ -198,16 +169,7 @@ def generate_qq_email(
     q_length: int | None = None,
     weighted: bool = False
 ) -> str:
-    """
-    生成 QQ 数字邮箱。
-
-    - -q：
-      q_length 为 None 时，随机 9 - 11 位
-      q_length 有值时，使用指定长度
-
-    - -qn：
-      weighted=True 时，使用加权长度
-    """
+    """生成 QQ 邮箱。"""
     if weighted:
         length = random_qq_length_weighted()
     else:
@@ -219,21 +181,13 @@ def generate_qq_email(
 
 
 def get_default_output_path() -> Path:
-    """
-    默认输出到桌面 out.txt。
-    """
+    """默认输出路径。"""
     desktop = Path.home() / "Desktop"
     return desktop / "out.txt"
 
 
 def parse_q_length(q_value: str | None) -> int | None:
-    """
-    解析 -q 的可选长度参数。
-
-    - 没有 -q：None
-    - 单独 -q：None
-    - -q 10：10
-    """
+    """解析 QQ 长度。"""
     if q_value is None:
         return None
 
@@ -285,7 +239,9 @@ def main():
     parser.add_argument(
         "-m",
         dest="mail_suffix",
-        help="指定普通模式邮箱后缀，例如 @163.com 或 163.com；不指定则随机使用 @139.com / @163.com / @162.com"
+        nargs="?",
+        const="__RANDOM__",
+        help="邮箱后缀开关：不输入 -m 时不拼接后缀；单独输入 -m 时随机使用 @139.com / @163.com / @162.com；-m 携带参数时使用指定后缀，例如 @163.com 或 163.com"
     )
 
     parser.add_argument(
@@ -338,7 +294,7 @@ def main():
 
     results = set()
 
-    suffix_count = 1 if mail_suffix else len(DEFAULT_SUFFIXES)
+    suffix_count = 1
 
     normal_max_possible = len(prefixes) * 10000 * suffix_count if prefixes else 0
 

@@ -1,4 +1,4 @@
-# toolbox
+# Nyratoolbox
 个人常用命令行工具箱。
 
 收入一些轻量级、可直接运行的小工具，主要面向日常测试、数据处理、格式验证、脚本实验和临时自动化和创建字典。
@@ -17,8 +17,9 @@
 ## 目录结构
 
 ```text
-toolbox/
-├── number_dictionary       # 生成 手机号/QQ号 或手机号/QQ号格式邮箱
+Nyratoolbox/
+├── number_dictionary       # 生成 QQ号与来自真实号段的随机手机号 以及 手机号/QQ号格式邮箱
 ├── SFZ_dictionary          # 生成 格式合法的 大陆身份证号码
-├── ShortID_dictionary      # 生成偶数长度的十六进制 ShortID 穷举列表
+├── ShortID_dictionary      # 生成指定长度的十六进制 ShortID 穷举列表
 └── README.md               # 项目根目录说明
+```

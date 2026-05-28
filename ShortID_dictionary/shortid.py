@@ -44,9 +44,6 @@ def validate_length(length: int) -> None:
     if length <= 0:
         raise ValueError("-l 必须大于 0")
 
-    if length % 2 != 0:
-        raise ValueError("-l 必须是偶数，例如 2、4、6、8")
-
 
 def format_hex_item(number: int, length: int) -> str:
     """格式化十六进制。"""

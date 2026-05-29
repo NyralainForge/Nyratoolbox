@@ -37,8 +37,7 @@ broadcast        广播地址
 usable_range     可用主机范围
 host_count       可用主机数量
 netmask          子网掩码
-wildcard         ACL wildcard 反掩码
-hostmask         hostmask
+wildcard_hostmask ACL wildcard / hostmask 反掩码
 special          特殊说明
 ```
 
@@ -58,8 +57,7 @@ broadcast: 192.168.1.255
 usable_range: 192.168.1.1 - 192.168.1.254
 host_count: 254
 netmask: 255.255.255.0
-wildcard: 0.0.0.255
-hostmask: 0.0.0.255
+wildcard_hostmask: 0.0.0.255
 ```
 
 也可以用 `--mask` 单独指定子网掩码：
@@ -294,7 +292,7 @@ python3 subnetting.py summarize 192.168.0.0/24 192.168.2.0/24 --force
 
 ### wildcard
 
-ACL wildcard 反掩码计算。用于计算 Cisco / Huawei ACL 中常见的 wildcard 表达，支持单主机、网段和任意地址范围。
+ACL wildcard 反掩码计算。用于计算 ACL 中常见的 wildcard 匹配表达，支持单主机、网段和任意地址范围。
 
 ```text
 --host IP                单主机 IPv4 地址
@@ -312,8 +310,7 @@ python3 subnetting.py wildcard --host 192.168.1.10
 
 ```text
 type: single-host
-cisco: host 192.168.1.10
-huawei: 192.168.1.10 0.0.0.0
+match: 192.168.1.10 0.0.0.0
 wildcard: 0.0.0.0
 ```
 
@@ -326,8 +323,7 @@ python3 subnetting.py wildcard --network 192.168.1.0/24
 输出类似：
 
 ```text
-cisco: 192.168.1.0 0.0.0.255
-huawei: 192.168.1.0 0.0.0.255
+match: 192.168.1.0 0.0.0.255
 wildcard: 0.0.0.255
 ```
 
@@ -337,7 +333,13 @@ wildcard: 0.0.0.255
 python3 subnetting.py wildcard --range 192.168.1.10 192.168.1.30
 ```
 
-程序会用 `ipaddress.summarize_address_range(start, end)` 把任意地址范围拆成最少数量的 CIDR 段，再输出每一段对应的 wildcard。这个功能适合处理范围不是标准网段的 ACL。
+程序会用 `ipaddress.summarize_address_range(start, end)` 把任意地址范围拆成最少数量的 CIDR 段。表格只显示每个拆分后的 `cidr`、`match` 和 `wildcard`，原始范围会放到 Notes 中：
+
+```text
+- 原始范围: 192.168.1.10 - 192.168.1.30
+```
+
+这个功能适合处理范围不是标准网段的 ACL。
 
 ### dhcp
 

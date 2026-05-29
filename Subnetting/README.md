@@ -28,40 +28,182 @@ Subnetting/
 
 ### ipv4
 
-用于 IPv4 地址基础计算。适合检查某个 IPv4 地址属于哪个网段、可用地址范围是多少、广播地址是什么，以及写 ACL 或网络文档时需要掩码和反掩码的场景。
+IPv4 基础计算。输入一个 IPv4 地址/CIDR，输出该地址所在网段的关键字段，适合检查网络地址、广播地址、可用主机范围、可用主机数量、子网掩码和 ACL wildcard 反掩码。
 
 ```text
 address          IPv4 地址/CIDR，例如 192.168.1.10/24
 --mask MASK      子网掩码，例如 255.255.255.0；会覆盖 address 中的前缀
 ```
 
-`address` 可以直接写成 `IP/前缀`。如果现场只拿到传统子网掩码，可以用 `--mask` 指定掩码，程序会按该掩码重新计算网络信息。
+输出字段：
+
+```text
+input_ip         输入 IP
+prefix           前缀长度
+network          网络地址
+broadcast        广播地址
+usable_range     可用主机范围
+host_count       可用主机数量
+netmask          子网掩码
+wildcard         ACL wildcard 反掩码
+hostmask         hostmask
+special          特殊说明
+```
+
+示例：
+
+```bash
+python3 subnetting.py ipv4 192.168.1.10/24
+```
+
+典型结果包含：
+
+```text
+input_ip: 192.168.1.10
+prefix: /24
+network: 192.168.1.0
+broadcast: 192.168.1.255
+usable_range: 192.168.1.1 - 192.168.1.254
+host_count: 254
+netmask: 255.255.255.0
+wildcard: 0.0.0.255
+hostmask: 0.0.0.255
+```
+
+也可以用 `--mask` 单独指定子网掩码：
+
+```bash
+python3 subnetting.py ipv4 192.168.1.10/24 --mask 255.255.255.128
+```
+
+这里 `--mask` 会覆盖原来的 `/24`，相当于重新计算 `192.168.1.10/255.255.255.128`，也就是 `/25`。
 
 ### ipv6
 
-用于 IPv6 地址和前缀基础计算。适合确认 IPv6 网络前缀、地址范围、地址类型，以及估算从一个父前缀继续划分子网的数量。
+IPv6 基础计算。输入 IPv6 地址/前缀，输出网络前缀、地址范围、地址数量和地址类型，适合做 IPv6 地址规划、前缀核对和地址类型识别。
 
 ```text
 address                 IPv6 地址/前缀，例如 fd00::1/64
 --child-prefix PREFIX   目标子网前缀，用于计算可划分子网数量
 ```
 
-`address` 用来指定 IPv6 地址和当前前缀。`--child-prefix` 用在规划 IPv6 子网时，例如从 `/48` 规划 `/64` 或从 `/64` 规划 `/80`，程序会输出可划分子网数量。
+输出字段：
+
+```text
+input_ip         输入 IP
+prefix           前缀长度
+network_prefix   网络前缀
+address_range    地址范围
+address_count    地址数量
+address_type     地址类型
+special          特殊说明
+```
+
+示例：
+
+```bash
+python3 subnetting.py ipv6 fd00:aabb::1/64
+```
+
+典型结果包含：
+
+```text
+input_ip: fd00:aabb::1
+prefix: /64
+network_prefix: fd00:aabb::/64
+address_range: fd00:aabb:: - fd00:aabb::ffff:ffff:ffff:ffff
+address_count: 18446744073709551616
+address_type: ULA/private
+```
+
+也可以计算某个父前缀可以划分出多少个子网：
+
+```bash
+python3 subnetting.py ipv6 fd00:aabb::1/48 --child-prefix 64
+```
+
+Notes 中会显示：
+
+```text
+按 /64 可划分子网数量: 65536
+```
+
+计算逻辑是 `2^(64 - 48) = 65536`。
+
+IPv6 地址类型识别逻辑：
+
+```text
+multicast        组播地址
+link-local       链路本地地址
+ULA/private      ULA 或 Python ipaddress 归类为 private 的地址
+loopback         环回地址
+unspecified      未指定地址
+global-unicast   全局单播地址
+unicast/other    其他单播地址
+```
+
+小提醒：Python `ipaddress` 的 `is_private` 不只覆盖 ULA，有些特殊地址也可能被归为 private，所以这里显示为 `ULA/private`，是一个宽泛判断。
 
 ### vlsm
 
-用于 VLSM 不等长子网划分。适合不同部门、业务区、楼层或 VLAN 需要不同主机数量时，从一个父网段中自动按需求分配地址空间。
+VLSM 自动划分。根据不同业务所需主机数量，在父网段中自动分配不同大小的子网。适合办公网、访客网、服务器区、点到点链路等规模不同的地址规划。
 
 ```text
 parent           父网段，例如 192.168.10.0/24
 hosts            业务名:主机数 或 业务名=主机数，可填写多个，例如 office:120 guest:50
 ```
 
-`parent` 是可分配的总地址池。`hosts` 表示每个业务实际需要的主机数量，程序会从大到小分配最合适前缀，并列出剩余地址空间。
+示例：
+
+```bash
+python3 subnetting.py vlsm 192.168.10.0/24 office:120 guest:50 server:20 p2p:2
+```
+
+程序会先把需求按主机数从大到小排序：
+
+```text
+office 120
+guest  50
+server 20
+p2p    2
+```
+
+然后自动分配最合适前缀：
+
+```text
+office -> /25
+guest  -> /26
+server -> /27
+p2p    -> /31
+```
+
+输出字段：
+
+```text
+name              业务名称
+required_hosts    需求主机数
+subnet            分配到的子网
+usable_hosts      可用主机数
+range             可用地址范围
+network           网络地址
+broadcast_or_last 广播地址或最后地址
+wildcard          IPv4 ACL wildcard
+```
+
+典型分配结果：
+
+```text
+office  192.168.10.0/25
+guest   192.168.10.128/26
+server  192.168.10.192/27
+p2p     192.168.10.224/31
+```
+
+最后 Notes 会显示剩余地址空间，方便继续规划或检查浪费情况。
 
 ### flsm
 
-用于 FLSM 等长子网划分。适合所有子网规模一致的场景，例如把一个网段平均切成若干个 VLAN，或每个分支都需要相同规模的地址池。
+FLSM 等长划分。FLSM 是 Fixed Length Subnet Mask，表示所有子网长度一样。适合所有 VLAN、分支或实验网段都需要相同规模地址池的场景。
 
 ```text
 parent           父网段，例如 10.0.0.0/24
@@ -69,32 +211,98 @@ parent           父网段，例如 10.0.0.0/24
 --hosts HOSTS    每个子网需要的主机数量，用于自动推导前缀
 ```
 
-`--count` 用来指定要平均切成多少个子网。`--hosts` 用来指定每个子网至少容纳多少主机，程序会自动推导合适前缀。两者都填写时，会先按 `--hosts` 推导前缀，再只显示前 `--count` 个结果。
+按子网数量划分：
+
+```bash
+python3 subnetting.py flsm 192.168.1.0/24 --count 4
+```
+
+程序会计算 `/24 + log2(4) = /26`，得到：
+
+```text
+192.168.1.0/26
+192.168.1.64/26
+192.168.1.128/26
+192.168.1.192/26
+```
+
+按每个子网需要的主机数划分：
+
+```bash
+python3 subnetting.py flsm 192.168.1.0/24 --hosts 50
+```
+
+IPv4 中 50 台主机需要加上网络地址和广播地址，也就是至少 52 个地址；最小 2 的幂是 64，所以会推导为 `/26`，并生成多个 `/26` 子网。
+
+如果同时指定 `--hosts` 和 `--count`，程序会先按 `--hosts` 推导前缀，再只显示前 `--count` 个子网。
 
 ### overlap
 
-用于检查多个网段是否互相包含、重叠或完全冲突。适合合并地址规划、排查路由冲突、审核 DHCP 地址池或确认多部门提交的网段是否撞车。
+网段重叠检测。用于检测多个网段之间是否完全相同、互相包含、部分重叠，或属于不同 IP 版本。适合检查静态路由、OSPF 汇总、ACL 范围和 DHCP 地址池是否撞车。
 
 ```text
 networks         需要检查的网段列表，可填写多个
 ```
 
-`networks` 接收多个 CIDR 网段。程序会两两比较，并给出冲突类型和冲突地址范围。
+示例：
+
+```bash
+python3 subnetting.py overlap 192.168.1.0/24 192.168.1.128/25 10.0.0.0/8
+```
+
+程序会发现 `192.168.1.128/25` 被 `192.168.1.0/24` 包含，并输出冲突地址范围：
+
+```text
+192.168.1.128 - 192.168.1.255
+```
+
+如果没有发现问题，会输出：
+
+```text
+未发现包含、重叠或冲突关系
+```
 
 ### summarize
 
-用于路由汇总。适合整理静态路由、优化路由表、准备汇总路由公告，或检查多个连续网段能否聚合成更少的 CIDR。
+路由汇总。用于对多个网段做 CIDR 汇总，适合整理静态路由、优化路由表、准备汇总路由公告，或检查多个连续网段能否聚合成更少的路由。
 
 ```text
 networks         需要汇总的网段列表，可填写多个
 --force          按首尾地址强制汇总，并提示额外包含的地址范围
 ```
 
-默认会生成精确覆盖输入网段的最小 CIDR 列表。使用 `--force` 时，会按输入网段的首尾地址生成一个覆盖范围更大的汇总网段，并提示该汇总会额外包含哪些地址空间。
+安全汇总示例：
+
+```bash
+python3 subnetting.py summarize 192.168.0.0/24 192.168.1.0/24 192.168.2.0/24 192.168.3.0/24
+```
+
+会汇总成：
+
+```text
+192.168.0.0/22
+```
+
+默认使用 `ipaddress.collapse_addresses(networks)`，只做合理、安全、不额外包含地址的汇总。
+
+强制汇总示例：
+
+```bash
+python3 subnetting.py summarize 192.168.0.0/24 192.168.2.0/24 --force
+```
+
+正常安全汇总可能仍然分开显示：
+
+```text
+192.168.0.0/24
+192.168.2.0/24
+```
+
+加 `--force` 后，程序会按首尾地址计算一个能覆盖全部范围的最小大网段，并列出强制汇总额外包含的地址空间。这个提示可以帮助避免为了少写一条路由，把不属于自己的网段也汇总进去。
 
 ### wildcard
 
-用于 ACL wildcard 计算。适合编写 Cisco、Huawei 等网络设备 ACL 时，将单主机、网段或地址范围转换成 wildcard 表达。
+ACL wildcard 反掩码计算。用于计算 Cisco / Huawei ACL 中常见的 wildcard 表达，支持单主机、网段和任意地址范围。
 
 ```text
 --host IP                单主机 IPv4 地址
@@ -102,11 +310,46 @@ networks         需要汇总的网段列表，可填写多个
 --range START END        IPv4 地址范围，会自动拆分为最小 CIDR 片段
 ```
 
-`--host` 用于单个地址，wildcard 固定为 `0.0.0.0`。`--network` 用于普通网段。`--range` 用于起止地址范围，程序会自动拆成若干个可表达的 CIDR 片段并给出对应 wildcard。
+单主机：
+
+```bash
+python3 subnetting.py wildcard --host 192.168.1.10
+```
+
+输出类似：
+
+```text
+type: single-host
+cisco: host 192.168.1.10
+huawei: 192.168.1.10 0.0.0.0
+wildcard: 0.0.0.0
+```
+
+网段：
+
+```bash
+python3 subnetting.py wildcard --network 192.168.1.0/24
+```
+
+输出类似：
+
+```text
+cisco: 192.168.1.0 0.0.0.255
+huawei: 192.168.1.0 0.0.0.255
+wildcard: 0.0.0.255
+```
+
+地址范围：
+
+```bash
+python3 subnetting.py wildcard --range 192.168.1.10 192.168.1.30
+```
+
+程序会用 `ipaddress.summarize_address_range(start, end)` 把任意地址范围拆成最少数量的 CIDR 段，再输出每一段对应的 wildcard。这个功能适合处理范围不是标准网段的 ACL。
 
 ### dhcp
 
-用于 DHCP 地址池规划。适合从一个子网中排除网关、服务器、打印机、保留地址后，生成真正可分配给客户端的地址池。
+DHCP 地址池规划。根据子网、网关和保留地址，计算 DHCP 可分配地址池。适合在写 DHCP 配置前，先排除网关、服务器、打印机和固定地址。
 
 ```text
 subnet                   DHCP 所属 IPv4 子网
@@ -114,108 +357,173 @@ subnet                   DHCP 所属 IPv4 子网
 --reserve VALUE          保留地址或地址范围，可重复使用，例如 192.168.1.10-192.168.1.20
 ```
 
-`subnet` 是 DHCP 所在的 IPv4 网段。`--gateway` 会自动从可分配池中排除。`--reserve` 可重复填写，既可以是单个地址，也可以是 `起始-结束` 的地址范围；程序会检查保留范围是否合法。
+基础示例：
+
+```bash
+python3 subnetting.py dhcp 192.168.1.0/24 --gateway 192.168.1.1
+```
+
+输出类似：
+
+```text
+subnet: 192.168.1.0/24
+gateway: 192.168.1.1
+pool_start: 192.168.1.2
+pool_end: 192.168.1.254
+addresses: 253
+```
+
+因为 `192.168.1.0` 是网络地址，`192.168.1.255` 是广播地址，`192.168.1.1` 是网关并会被排除。
+
+带保留地址：
+
+```bash
+python3 subnetting.py dhcp 192.168.1.0/24 \
+  --gateway 192.168.1.1 \
+  --reserve 192.168.1.10-192.168.1.20 \
+  --reserve 192.168.1.100
+```
+
+程序会自动排除：
+
+```text
+192.168.1.1
+192.168.1.10 - 192.168.1.20
+192.168.1.100
+```
+
+然后把剩余地址池拆成几段：
+
+```text
+192.168.1.2 - 192.168.1.9
+192.168.1.21 - 192.168.1.99
+192.168.1.101 - 192.168.1.254
+```
 
 ### tree
 
-用于地址空间树状展示。适合从父网段角度查看哪些子网已使用、哪些空间仍空闲，帮助理解整体地址规划。
+地址空间树状可视化。展示一个父网段中哪些子网已被使用，哪些空间仍然空闲。适合配合 VLSM 的剩余空间结果，判断地址池还剩多少。
 
 ```text
 parent           父网段
 used             已使用的子网列表，可为空或填写多个
 ```
 
-`parent` 是需要观察的总地址空间。`used` 是已经分配出去的子网，程序会用树状结构展示父网段、已用空间和剩余空间。
-
-## 用法示例
-
-### IPv4 基础计算
-
 ```bash
-python3 subnetting.py ipv4 192.168.1.10/24 -p
-python3 subnetting.py ipv4 192.168.1.10/24 --mask 255.255.255.0 -o
+python3 subnetting.py tree 192.168.1.0/24 192.168.1.0/26 192.168.1.128/25
 ```
 
-输出网络地址、广播地址、可用地址范围、主机数量、掩码、反掩码和 wildcard。会正确处理 `/31` 点到点与 `/32` 主机路由。
+输出类似：
 
-### IPv6 基础计算
+```text
+# 地址空间树状可视化
 
-```bash
-python3 subnetting.py ipv6 fd00::1/64 --child-prefix 80 -p
-python3 subnetting.py ipv6 fe80::1/127 -p
+192.168.1.0/24 (parent, 256 addresses)
+└── 192.168.1.0/26 [used, 64 addresses]
+└── 192.168.1.128/25 [used, 128 addresses]
+└── 192.168.1.64/26 [free, 64 addresses]
 ```
 
-输出网络前缀、地址范围、地址数量、地址类型，并识别单播、链路本地、ULA/private、组播等类型。会正确处理 `/127` 与 `/128`。
+如果安装了 `rich`，终端会显示成彩色树状结构。
 
-### VLSM 自动划分
+### 特殊前缀处理
 
-```bash
-python3 subnetting.py vlsm 192.168.10.0/24 office:100 guest:50 camera:20 p2p:2 -p
+程序对一些特殊前缀做了单独处理，避免把点到点链路和主机路由算错。
+
+```text
+IPv4 /31     点到点网络，两端地址均可用
+IPv4 /32     主机路由，只有一个地址
+IPv6 /127    点到点网络，两个地址都可用
+IPv6 /128    单地址
 ```
 
-按主机需求从大到小自动分配最合适子网，并显示剩余地址空间。
-
-### FLSM 等长划分
+示例：
 
 ```bash
-python3 subnetting.py flsm 10.0.0.0/24 --count 4 -p
-python3 subnetting.py flsm 10.0.0.0/24 --hosts 50 -p
+python3 subnetting.py ipv4 10.0.0.0/31
 ```
 
-支持按指定数量平均划分，也支持按每个子网所需主机数自动推导前缀。
+会认为两个地址都可用：
 
-### 子网重叠检测
+```text
+usable_range: 10.0.0.0 - 10.0.0.1
+host_count: 2
+```
+
+### 子命令总览
+
+```text
+ipv4        IPv4 地址、掩码、广播、反掩码、可用范围计算
+ipv6        IPv6 前缀、地址范围、地址类型、子前缀数量计算
+vlsm        按不同主机需求自动划分变长子网
+flsm        按固定长度划分等长子网
+overlap     检测多个网段是否重叠或包含
+summarize   路由汇总
+wildcard    ACL wildcard 计算
+dhcp        DHCP 地址池规划
+tree        地址空间树状展示
+```
+
+### 常用命令速查
 
 ```bash
-python3 subnetting.py overlap 10.0.0.0/24 10.0.0.128/25 10.0.1.0/24 -p
+# IPv4 基础计算
+python3 subnetting.py ipv4 192.168.1.10/24
+
+# IPv4 使用独立子网掩码
+python3 subnetting.py ipv4 192.168.1.10/24 --mask 255.255.255.128
+
+# IPv6 基础计算
+python3 subnetting.py ipv6 fd00:aabb::1/64
+
+# IPv6 计算 /48 能分多少个 /64
+python3 subnetting.py ipv6 fd00:aabb::1/48 --child-prefix 64
+
+# VLSM 自动划分
+python3 subnetting.py vlsm 192.168.10.0/24 office:120 guest:50 server:20 p2p:2
+
+# FLSM 按数量划分
+python3 subnetting.py flsm 192.168.1.0/24 --count 4
+
+# FLSM 按主机数划分
+python3 subnetting.py flsm 192.168.1.0/24 --hosts 50
+
+# 检测网段重叠
+python3 subnetting.py overlap 192.168.1.0/24 192.168.1.128/25 10.0.0.0/8
+
+# 路由汇总
+python3 subnetting.py summarize 192.168.0.0/24 192.168.1.0/24
+
+# 强制路由汇总并显示额外包含范围
+python3 subnetting.py summarize 192.168.0.0/24 192.168.2.0/24 --force
+
+# ACL 单主机 wildcard
+python3 subnetting.py wildcard --host 192.168.1.10
+
+# ACL 网段 wildcard
+python3 subnetting.py wildcard --network 192.168.1.0/24
+
+# ACL 地址范围拆分
+python3 subnetting.py wildcard --range 192.168.1.10 192.168.1.30
+
+# DHCP 地址池规划
+python3 subnetting.py dhcp 192.168.1.0/24 --gateway 192.168.1.1
+
+# DHCP 地址池规划，带保留地址
+python3 subnetting.py dhcp 192.168.1.0/24 --gateway 192.168.1.1 --reserve 192.168.1.10-192.168.1.20
+
+# 地址空间树
+python3 subnetting.py tree 192.168.1.0/24 192.168.1.0/26 192.168.1.128/25
+
+# 输出 Markdown 文件
+python3 subnetting.py ipv4 192.168.1.10/24 -o result.md
+
+# 输出 CSV 文件
+python3 subnetting.py ipv4 192.168.1.10/24 -o result.csv
+
+# 打印并输出文件
+python3 subnetting.py ipv4 192.168.1.10/24 -p -o result.md
 ```
-
-检查多个网段之间是否存在包含、重叠或完全冲突，并给出冲突地址范围。
-
-### 路由汇总
-
-```bash
-python3 subnetting.py summarize 10.0.0.0/24 10.0.1.0/24 10.0.2.0/24 --force -p
-```
-
-生成最小 CIDR 汇总路由。使用 `--force` 时，会按首尾地址强制汇总，并提示可能额外包含的地址范围。
-
-### ACL wildcard 计算
-
-```bash
-python3 subnetting.py wildcard --host 192.168.1.10 -p
-python3 subnetting.py wildcard --network 192.168.1.0/24 -p
-python3 subnetting.py wildcard --range 192.168.1.10 192.168.1.30 -p
-```
-
-输出 Cisco / Huawei ACL 可用的 wildcard 表达。地址范围会自动拆分为最小 CIDR 片段。
-
-### DHCP 地址池规划
-
-```bash
-python3 subnetting.py dhcp 192.168.1.0/24 --gateway 192.168.1.1 --reserve 192.168.1.10-192.168.1.20 --reserve 192.168.1.100 -p
-```
-
-根据子网、网关和保留地址生成可分配地址池，并检查网关和保留范围是否合法。
-
-### Markdown / CSV 导出
-
-```bash
-python3 subnetting.py vlsm 192.168.10.0/24 office:100 guest:50 --format md -o plan.md
-python3 subnetting.py flsm 10.0.0.0/24 --count 8 --format csv -o subnet.csv
-python3 subnetting.py ipv4 192.168.1.10/24 -o
-```
-
-当 `-o` 后面只跟文件名时，文件会输出到桌面。例如 `-o plan.md` 会写入 `~/Desktop/plan.md`。
-未指定 `--format` 时，`.txt` 默认写入 Markdown，`.csv` 默认写入 CSV；指定 `--format` 时会使用指定格式。
-
-### 地址空间树状可视化
-
-```bash
-python3 subnetting.py tree 192.168.10.0/24 192.168.10.0/26 192.168.10.64/27 -p
-```
-
-以树状结构展示父网段、已用子网和剩余空间。
 
 ## 注意
 

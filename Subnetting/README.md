@@ -4,14 +4,6 @@
 
 默认仅使用 Python 标准库，无需安装依赖。如果本地已安装 `rich`，屏幕输出会自动使用漂亮表格；未安装时会自动退回普通 Markdown 文本输出，程序不会崩溃。
 
-## 文件
-
-```text
-Subnetting/
-├── subnetting.py
-└── README.md
-```
-
 ## 全局参数
 
 ```text

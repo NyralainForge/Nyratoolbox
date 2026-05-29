@@ -154,8 +154,7 @@ def ipv4_info(interface: ipaddress.IPv4Interface) -> Result:
         "usable_range": f"{first} - {last}" if first != "-" else "-",
         "host_count": hosts,
         "netmask": str(net.netmask),
-        "wildcard": ipv4_wildcard(net),
-        "hostmask": str(net.hostmask),
+        "wildcard_hostmask": ipv4_wildcard(net),
         "special": special_note(net),
     }]
     return Result("IPv4 基础计算", rows)
@@ -427,13 +426,13 @@ def forced_extra_ranges(original: list[ipaddress._BaseNetwork], summaries: list[
 def wildcard(args: argparse.Namespace) -> Result:
     """计算ACL通配符。"""
     rows = []
+    notes = []
 
     if args.host:
         addr = ipaddress.IPv4Address(args.host)
         rows.append({
             "type": "single-host",
-            "cisco": f"host {addr}",
-            "huawei": f"{addr} 0.0.0.0",
+            "match": f"{addr} 0.0.0.0",
             "wildcard": "0.0.0.0",
         })
 
@@ -444,8 +443,7 @@ def wildcard(args: argparse.Namespace) -> Result:
             "type": "network",
             "network": str(net.network_address),
             "prefix": f"/{net.prefixlen}",
-            "cisco": f"{net.network_address} {wc}",
-            "huawei": f"{net.network_address} {wc}",
+            "match": f"{net.network_address} {wc}",
             "wildcard": wc,
         })
 
@@ -454,18 +452,17 @@ def wildcard(args: argparse.Namespace) -> Result:
         end = ipaddress.IPv4Address(args.range[1])
         if int(start) > int(end):
             raise ValueError("地址范围起点大于终点")
+        notes.append(f"原始范围: {start} - {end}")
         for net in ipaddress.summarize_address_range(start, end):
             wc = ipv4_wildcard(net)
             rows.append({
                 "type": "range-part",
-                "range": f"{start} - {end}",
-                "network": str(net),
-                "cisco": f"{net.network_address} {wc}",
-                "huawei": f"{net.network_address} {wc}",
+                "cidr": str(net),
+                "match": f"{net.network_address} {wc}",
                 "wildcard": wc,
             })
 
-    return Result("ACL wildcard 计算", rows)
+    return Result("ACL wildcard 计算", rows, notes)
 
 
 def dhcp_plan(

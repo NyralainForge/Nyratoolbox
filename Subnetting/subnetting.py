@@ -661,7 +661,7 @@ def print_result(result: Result, fallback_text: str) -> None:
     console = Console()
 
     if result.title == "地址空间树状可视化":
-        print_rich_tree(console, Tree, result)
+        print_rich_tree(console, Panel, Tree, result)
     else:
         keys = result_keys(result)
         table = Table(
@@ -689,7 +689,7 @@ def print_result(result: Result, fallback_text: str) -> None:
         console.print(Panel(notes, title="Notes", border_style="yellow"))
 
 
-def print_rich_tree(console: Any, tree_class: Any, result: Result) -> None:
+def print_rich_tree(console: Any, panel_class: Any, tree_class: Any, result: Result) -> None:
     """打印漂亮树。"""
     parent = result.rows[0] if result.rows else None
     if not parent:
@@ -701,7 +701,7 @@ def print_rich_tree(console: Any, tree_class: Any, result: Result) -> None:
         style = "green" if row.get("type") == "free" else "magenta"
         root.add(f"[{style}]{row['network']}[/] [dim]({row['type']}, {row['addresses']} addresses)[/]")
 
-    console.print(Panel(root, title=result.title, border_style="cyan"))
+    console.print(panel_class(root, title=result.title, border_style="cyan"))
 
 
 def is_number_like(value: Any) -> bool:

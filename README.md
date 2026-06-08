@@ -18,6 +18,7 @@
 
 ```text
 Nyratoolbox/
+├── F-encrypt               # AES-GCM 加密 / 解密工具，支持文件二进制保真读写和 ECC 纠错
 ├── number_dictionary       # 生成 QQ号与来自真实号段的随机手机号 以及 手机号/QQ号格式邮箱
 ├── SFZ_dictionary          # 生成 格式合法的 大陆身份证号码
 ├── ShortID_dictionary      # 生成指定长度的十六进制 ShortID 穷举列表

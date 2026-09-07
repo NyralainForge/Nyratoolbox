@@ -1,11 +1,11 @@
-# ChatGPT索引重制_Mac
+# ChatGPT_Index_Rebuild_Mac
 
 此脚本针对本次检查过的 Mac 数据库结构制作，是本地维护脚本，并非官方修复工具。它会让应用在下次启动时重新拉取 ChatGPT 聊天索引；无法保证修复独立的网络错误或界面转圈问题。
 
 ## 执行
 
 1. 保存工作，使用 ⌘Q 完全退出 ChatGPT 和 Codex。执行期间不要重新打开它们。
-2. 双击同目录的 `重建ChatGPT聊天索引.command`。如果双击不能启动，可在普通 Terminal 中输入 `bash `，把该文件拖进终端后回车。
+2. 双击同目录的 `rebuild_chatgpt_index.command`。如果双击不能启动，可在普通 Terminal 中输入 `bash `，把该文件拖进终端后回车。
 3. 核对显示的数据库位置和记录数量，输入 `REBUILD` 并回车。
 4. 等到出现“已重置 ChatGPT 索引，并标记为需要完整重建”，保存输出的备份位置与恢复命令，然后手动启动 ChatGPT。观察列表是否重新加载，及原来已删除的聊天是否消失。
 
@@ -54,7 +54,7 @@
 在仓库根目录运行测试：
 
 ```sh
-/usr/bin/python3 -m unittest discover -s 'ChatGPT索引重制_Mac' -v
+/usr/bin/python3 -m unittest discover -s 'ChatGPT_Index_Rebuild_Mac' -v
 ```
 
 备份目录已通过 `.gitignore` 排除，不应提交至 GitHub。

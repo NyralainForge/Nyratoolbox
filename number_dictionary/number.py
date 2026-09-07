@@ -36,11 +36,8 @@ def load_dict_file(file_path: str) -> list[str]:
             return
 
         # CSV / TSV 表头或说明字段自动跳过
-        if not token.isdigit():
+        if not token.isascii() or not token.isdigit():
             return
-
-        if len(token) != 7:
-            raise ValueError(f"字典中存在非法内容，不是 7 位数字: {token}")
 
         values.append(token)
 
@@ -82,18 +79,17 @@ def load_dict_file(file_path: str) -> list[str]:
             )
 
     if not values:
-        raise ValueError("字典文件为空，或没有有效的 7 位数字")
+        raise ValueError("字典文件为空，或没有有效的数字")
 
     # 字典内部去重，保持原始顺序
     return list(dict.fromkeys(values))
 
 
-def validate_prefix(prefix: str) -> str:
-    """校验前缀。"""
-    if not prefix.isdigit() or len(prefix) != 7:
-        raise ValueError("第一部分必须是 7 位数字")
-
-    return prefix
+def parse_length(value: str) -> int:
+    """解析随机数字长度。"""
+    if not value.isascii() or not value.isdigit() or int(value) <= 0:
+        raise ValueError("数字长度必须是大于 0 的整数，例如：10")
+    return int(value)
 
 
 def normalize_suffix(mail_suffix: str | None) -> str | None:
@@ -121,7 +117,8 @@ def normalize_suffix(mail_suffix: str | None) -> str | None:
 def generate_normal_email(prefixes: list[str], mail_suffix: str | None = None) -> str:
     """生成普通结果。"""
     prefix = random.choice(prefixes)
-    suffix_number = f"{random.randint(0, 9999):04d}"
+    # 内置字典存储 7 位号段；完整号码及其他长度的候选值直接使用。
+    suffix_number = f"{random.randint(0, 9999):04d}" if len(prefix) == 7 else ""
 
     if mail_suffix:
         return prefix + suffix_number + mail_suffix
@@ -209,8 +206,9 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "prefix",
-        nargs="?"
+        "length",
+        nargs="?",
+        help="普通模式生成的随机数字长度（正整数）"
     )
 
     parser.add_argument(
@@ -267,32 +265,53 @@ def main():
     q_length = parse_q_length(args.q_value) if q_mode else None
 
     prefixes: list[str] = []
+    length = None
 
     if args.dict_file:
-        if args.prefix:
-            raise ValueError("使用 -dict 时，不需要再手动输入 7 位数字参数")
+        if args.length is not None:
+            raise ValueError("使用 -dict 时，不需要再输入数字长度")
         prefixes = load_dict_file(args.dict_file)
+    elif qq_mode:
+        if args.length is not None:
+            raise ValueError("使用 -q 或 -qn 时，请通过 -q 指定长度，不需要位置参数")
     else:
-        # 非 QQ 模式下，必须手动输入 7 位前缀
-        # QQ 模式下，可以不输入前缀
-        if not qq_mode:
-            if not args.prefix:
-                raise ValueError("未使用 -dict / -q / -qn 时，必须直接输入一个 7 位数字")
-            prefixes = [validate_prefix(args.prefix)]
-        else:
-            if args.prefix:
-                raise ValueError("使用 -q 或 -qn 且不使用 -dict 时，不需要输入 7 位前缀")
+        if args.length is None:
+            raise ValueError("未使用 -dict / -q / -qn 时，必须输入数字长度，例如：10")
+        length = parse_length(args.length)
 
     results = set()
 
-    suffix_count = 1
+    # 完整候选号码可能已包含在某个 7 位号段中，计算容量时避免重复。
+    prefix_set = {value for value in prefixes if len(value) == 7}
+    normal_max_possible = len(prefix_set) * 10000 + sum(
+        len(value) != 7 and not (len(value) == 11 and value[:7] in prefix_set)
+        for value in prefixes
+    )
+    if length is not None:
+        normal_max_possible = 9 * 10 ** (length - 1)
 
-    normal_max_possible = len(prefixes) * 10000 * suffix_count if prefixes else 0
+    max_possible = normal_max_possible
+    if qq_mode:
+        qq_lengths = [q_length] if q_length is not None else (
+            range(7, 12) if qn_mode else range(9, 12)
+        )
+        qq_max_possible = sum(9 * 10 ** (size - 1) for size in qq_lengths)
+        overlap = 0
+        if mail_suffix == "@qq.com":
+            if 11 in qq_lengths:
+                overlap += sum(value[0] != "0" for value in prefix_set) * 10000
+            overlap += sum(
+                len(value) != 7
+                and not (len(value) == 11 and value[:7] in prefix_set)
+                and len(value) in qq_lengths
+                and value[0] != "0"
+                for value in prefixes
+            )
+        max_possible += qq_max_possible - overlap
 
-    # QQ 模式理论空间非常大，这里只对普通模式做严格上限校验
-    if not qq_mode and args.count > normal_max_possible:
+    if args.count > max_possible:
         raise ValueError(
-            f"要求生成 {args.count} 条，但普通模式最多只能生成 {normal_max_possible} 条不重复结果"
+            f"要求生成 {args.count} 条，但当前模式最多只能生成 {max_possible} 条不重复结果"
         )
 
     while len(results) < args.count:
@@ -314,9 +333,11 @@ def main():
                 weighted=qn_mode
             )
 
-        else:
-            # 普通模式
+        elif prefixes:
             item = generate_normal_email(prefixes, mail_suffix)
+
+        else:
+            item = random_digits(length) + (mail_suffix or "")
 
         results.add(item)
 

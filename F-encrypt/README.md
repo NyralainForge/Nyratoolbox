@@ -1,6 +1,6 @@
 # F-encrypt
 
-一个命令行加密 / 解密工具，使用 AES-GCM 加密数据，并将密文编码为以 `如是我闻：` 开头的伪经文文本。
+一个命令行加密 / 解密工具，使用 AES-GCM 加密数据，默认输出无填充的 URL-safe Base64 密文。加密时使用 `-sutra` 可输出以 `如是我闻：` 开头的伪经文。解密自动识别两种格式。
 
 > 本工具仅用于合法的个人数据保护、软件测试、教学演示和临时自动化用途。请妥善保存密码；密码丢失后无法恢复明文。
 
@@ -33,12 +33,16 @@ python3 -m pip install cryptography
 -encrypt        加密模式；默认也是加密模式
 -decrypt        解密模式
 -ecc            加密时启用 ECC 自动纠错编码
+-sutra          加密时输出伪经文；不指定则输出 Base64
 -o OUTPUT       指定输出路径和文件名
+--              后续参数全部按直接文本处理（包括以 - 开头的密文）
 ```
 
 `-encrypt` 和 `-decrypt` 不能同时使用。
 
 `-ecc` 只需要在加密时指定；解密时程序会自动识别 ECC 密文并尝试纠错。
+
+`-sutra` 和 `-ecc` 相互独立，可以单独使用或组合使用。解密无需指定这两个参数。
 
 ## 文件模式
 
@@ -65,6 +69,20 @@ python3 -m pip install cryptography
 
 ```bash
 python3 F-encrypt.py -encrypt "hello world"
+```
+
+输出伪经文，或同时启用纠错：
+
+```bash
+python3 F-encrypt.py -encrypt -sutra "hello world"
+python3 F-encrypt.py -encrypt -sutra -ecc config.conf -o secret.txt
+python3 F-encrypt.py -decrypt secret.txt -o restored.conf
+```
+
+直接传入密文时，建议使用 `--`，避免 Base64 密文开头的 `-` 被当作选项，或长密文被当作文件路径：
+
+```bash
+python3 F-encrypt.py -decrypt -- "这里替换为完整密文"
 ```
 
 加密文件，并指定输出密文文件：
@@ -126,7 +144,7 @@ cat secret.txt | python3 F-encrypt.py -decrypt -o restored.conf
 
 ## ECC 自动纠错
 
-`-ecc` 会在伪经文密文的字符层加入分块校验符号。正文字符不会重复铺开，程序会按块混入少量纠错符号，也不会在开头或结尾写入明显的 ECC 标记。解密时程序会先尝试普通解密，失败后自动按 ECC 结构修复字符层错误，再进入 AES-GCM 解密。
+`-ecc` 在所选输出格式的字符层加入分块校验符号。Base64 模式的校验字符还可能包含 `.`、`~`、`!`，因此启用 ECC 后不是标准 Base64，需由本程序解码。伪经文模式使用咒文字表。两种模式均无显式 ECC 标记；解密先尝试无 ECC 的解码，失败后尝试纠错，并且只有 AES-GCM 认证通过才返回明文。
 
 可纠正：
 

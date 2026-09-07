@@ -1,11 +1,12 @@
-# 一个简单的加密工具，使用 AES-GCM 加密，并将密文编码成伪经文的形式。
-# 加密后的文本以 "如是我闻：" 开头，后面跟着由特定汉字组成的字符串。
+# AES-GCM 加密工具，默认输出 Base64，使用 -sutra 输出伪经文。
+import base64
 import os
 import sys
 from getpass import getpass
 from pathlib import Path
 from typing import NamedTuple
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
@@ -70,6 +71,8 @@ ECC_ALPHABET = ALPHABET + "".join(
 )
 ECC_FIELD_SIZE = len(ECC_ALPHABET)
 ECC_DATA_SYMBOLS = 64
+BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+BASE64_ECC_ALPHABET = BASE64_ALPHABET + ".~!"
 
 
 class ParsedArgs(NamedTuple):
@@ -78,6 +81,7 @@ class ParsedArgs(NamedTuple):
     text: str | None
     input_path: Path | None
     ecc: bool
+    sutra: bool
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
@@ -150,32 +154,35 @@ def ecc_sutra_to_bytes(text: str) -> bytes:
     return sutra_to_bytes(f"{PREFIX}{repaired_body}")
 
 
-def encode_ecc_body(body: str) -> str:
-    table = {ch: i for i, ch in enumerate(ALPHABET)}
+def encode_ecc_body(body: str, alphabet: str = ALPHABET,
+                    ecc_alphabet: str = ECC_ALPHABET) -> str:
+    table = {ch: i for i, ch in enumerate(alphabet)}
     symbols = [table[ch] for ch in body]
     encoded_blocks = []
 
     for i in range(0, len(symbols), ECC_DATA_SYMBOLS):
-        encoded_blocks.append(encode_ecc_block(symbols[i:i + ECC_DATA_SYMBOLS]))
+        encoded_blocks.append(encode_ecc_block(symbols[i:i + ECC_DATA_SYMBOLS], ecc_alphabet))
 
     return "".join(encoded_blocks)
 
 
-def encode_ecc_block(data_symbols: list[int]) -> str:
+def encode_ecc_block(data_symbols: list[int], ecc_alphabet: str = ECC_ALPHABET) -> str:
+    field_size = len(ecc_alphabet)
     data_len = len(data_symbols)
-    total = sum(data_symbols) % ECC_FIELD_SIZE
+    total = sum(data_symbols) % field_size
     weighted_total = sum(
         (i + 1) * value for i, value in enumerate(data_symbols)
-    ) % ECC_FIELD_SIZE
+    ) % field_size
 
-    parity_2 = ((data_len + 1) * total - weighted_total) % ECC_FIELD_SIZE
-    parity_1 = (-total - parity_2) % ECC_FIELD_SIZE
+    parity_2 = ((data_len + 1) * total - weighted_total) % field_size
+    parity_1 = (-total - parity_2) % field_size
     codeword = data_symbols + [parity_1, parity_2]
 
-    return "".join(ECC_ALPHABET[value] for value in codeword)
+    return "".join(ecc_alphabet[value] for value in codeword)
 
 
-def decode_ecc_body(body: str) -> str:
+def decode_ecc_body(body: str, alphabet: str = ALPHABET,
+                    ecc_alphabet: str = ECC_ALPHABET) -> str:
     if len(body) < 3:
         raise ValueError("ECC 密文长度损坏")
 
@@ -187,18 +194,19 @@ def decode_ecc_body(body: str) -> str:
         if block_length < 3:
             raise ValueError("ECC 密文长度损坏")
 
-        decoded_chars.append(decode_ecc_block(body[i:i + block_length]))
+        decoded_chars.append(decode_ecc_block(body[i:i + block_length], alphabet, ecc_alphabet))
         i += block_length
 
     return "".join(decoded_chars)
 
 
-def decode_ecc_block(block: str) -> str:
+def decode_ecc_block(block: str, alphabet: str = ALPHABET,
+                     ecc_alphabet: str = ECC_ALPHABET) -> str:
     values: list[int | None] = []
     erasure_index = None
 
     for i, ch in enumerate(block):
-        index = ECC_ALPHABET.find(ch)
+        index = ecc_alphabet.find(ch)
         if index == -1:
             if erasure_index is not None:
                 raise ValueError("ECC 纠错失败：同一块中存在多个非法字符")
@@ -208,39 +216,40 @@ def decode_ecc_block(block: str) -> str:
             values.append(index)
 
     if erasure_index is not None:
-        repair_erasure(values, erasure_index)
+        repair_erasure(values, erasure_index, len(ecc_alphabet))
     else:
-        repair_substitution(values)
+        repair_substitution(values, len(ecc_alphabet))
 
     data_values = values[:-2]
-    if any(value is None or value >= len(ALPHABET) for value in data_values):
+    if any(value is None or value >= len(alphabet) for value in data_values):
         raise ValueError("ECC 纠错失败：数据符号损坏")
 
-    return "".join(ALPHABET[value] for value in data_values)
+    return "".join(alphabet[value] for value in data_values)
 
 
-def repair_erasure(values: list[int | None], erasure_index: int) -> None:
+def repair_erasure(values: list[int | None], erasure_index: int,
+                   field_size: int = ECC_FIELD_SIZE) -> None:
     known_sum = sum(value for value in values if value is not None)
-    repaired_value = (-known_sum) % ECC_FIELD_SIZE
+    repaired_value = (-known_sum) % field_size
     weighted_sum = sum(
         (i + 1) * value
         for i, value in enumerate(values)
         if value is not None
     )
 
-    if ((erasure_index + 1) * repaired_value + weighted_sum) % ECC_FIELD_SIZE != 0:
+    if ((erasure_index + 1) * repaired_value + weighted_sum) % field_size != 0:
         raise ValueError("ECC 纠错失败：非法字符无法恢复")
 
     values[erasure_index] = repaired_value
 
 
-def repair_substitution(values: list[int | None]) -> None:
-    symbol_sum = sum(value for value in values if value is not None) % ECC_FIELD_SIZE
+def repair_substitution(values: list[int | None], field_size: int = ECC_FIELD_SIZE) -> None:
+    symbol_sum = sum(value for value in values if value is not None) % field_size
     weighted_sum = sum(
         (i + 1) * value
         for i, value in enumerate(values)
         if value is not None
-    ) % ECC_FIELD_SIZE
+    ) % field_size
 
     if symbol_sum == 0 and weighted_sum == 0:
         return
@@ -248,30 +257,31 @@ def repair_substitution(values: list[int | None]) -> None:
         raise ValueError("ECC 纠错失败：错误数量超过纠错能力")
 
     error_position = (
-        weighted_sum * pow(symbol_sum, -1, ECC_FIELD_SIZE)
-    ) % ECC_FIELD_SIZE
+        weighted_sum * pow(symbol_sum, -1, field_size)
+    ) % field_size
     if error_position < 1 or error_position > len(values):
         raise ValueError("ECC 纠错失败：错误位置无效")
 
     index = error_position - 1
-    repaired_value = (values[index] - symbol_sum) % ECC_FIELD_SIZE
+    repaired_value = (values[index] - symbol_sum) % field_size
     values[index] = repaired_value
 
-    if not ecc_block_is_valid(values):
+    if not ecc_block_is_valid(values, field_size):
         raise ValueError("ECC 纠错失败：校验未通过")
 
 
-def ecc_block_is_valid(values: list[int | None]) -> bool:
-    symbol_sum = sum(value for value in values if value is not None) % ECC_FIELD_SIZE
+def ecc_block_is_valid(values: list[int | None], field_size: int = ECC_FIELD_SIZE) -> bool:
+    symbol_sum = sum(value for value in values if value is not None) % field_size
     weighted_sum = sum(
         (i + 1) * value
         for i, value in enumerate(values)
         if value is not None
-    ) % ECC_FIELD_SIZE
+    ) % field_size
     return symbol_sum == 0 and weighted_sum == 0
 
 
-def encrypt(data: bytes, password: str, use_ecc: bool = False) -> str:
+def encrypt(data: bytes, password: str, use_ecc: bool = False,
+            use_sutra: bool = False) -> str:
     salt = os.urandom(16)
     nonce = os.urandom(12)
 
@@ -285,22 +295,42 @@ def encrypt(data: bytes, password: str, use_ecc: bool = False) -> str:
     )
 
     payload = salt + nonce + ciphertext
+    if not use_sutra:
+        body = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+        return encode_ecc_body(body, BASE64_ALPHABET, BASE64_ECC_ALPHABET) if use_ecc else body
     if use_ecc:
         return bytes_to_ecc_sutra(payload)
     return bytes_to_sutra(payload)
 
 
 def decrypt(text: str, password: str) -> bytes:
+    if not text.startswith(PREFIX):
+        try:
+            return decrypt_payload(base64_to_bytes(text), password)
+        except (ValueError, InvalidTag):
+            repaired = decode_ecc_body(text, BASE64_ALPHABET, BASE64_ECC_ALPHABET)
+            return decrypt_payload(base64_to_bytes(repaired), password)
     try:
         return decrypt_payload(sutra_to_bytes(text), password)
-    except Exception as normal_error:
+    except (ValueError, InvalidTag) as normal_error:
         try:
             return decrypt_payload(ecc_sutra_to_bytes(text), password)
-        except Exception:
+        except (ValueError, InvalidTag):
             raise normal_error
 
 
+def base64_to_bytes(text: str) -> bytes:
+    if not text or any(ch not in BASE64_ALPHABET for ch in text):
+        raise ValueError("不是有效的 Base64 密文")
+    payload = base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
+    if base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=") != text:
+        raise ValueError("Base64 密文格式损坏")
+    return payload
+
+
 def decrypt_payload(payload: bytes, password: str) -> bytes:
+    if len(payload) < 44:
+        raise ValueError("密文长度不足")
     salt = payload[:16]
     nonce = payload[16:28]
     ciphertext = payload[28:]
@@ -317,12 +347,18 @@ def parse_args(argv: list[str]) -> ParsedArgs:
     output_path = None
     inputs = []
     ecc = False
+    sutra = False
+    literal_text = False
 
     i = 0
     while i < len(argv):
         arg = argv[i]
 
-        if arg in ("-encrypt", "-decrypt"):
+        if arg == "--":
+            inputs.extend(argv[i + 1:])
+            literal_text = True
+            break
+        elif arg in ("-encrypt", "-decrypt"):
             new_mode = arg[1:]
             if mode_set and mode != new_mode:
                 raise ValueError("-encrypt 和 -decrypt 不能同时使用")
@@ -330,6 +366,8 @@ def parse_args(argv: list[str]) -> ParsedArgs:
             mode_set = True
         elif arg == "-ecc":
             ecc = True
+        elif arg == "-sutra":
+            sutra = True
         elif arg == "-o":
             i += 1
             if i >= len(argv):
@@ -344,9 +382,9 @@ def parse_args(argv: list[str]) -> ParsedArgs:
 
         i += 1
 
-    input_path = resolve_input_file(inputs)
+    input_path = None if literal_text else resolve_input_file(inputs)
     text = None if input_path else " ".join(inputs) if inputs else None
-    return ParsedArgs(mode, output_path, text, input_path, ecc)
+    return ParsedArgs(mode, output_path, text, input_path, ecc, sutra)
 
 
 def resolve_input_file(inputs: list[str]) -> Path | None:
@@ -432,7 +470,7 @@ if __name__ == "__main__":
 
         password = getpass("请输入密码: ")
 
-        result = encrypt(data, password, args.ecc)
+        result = encrypt(data, password, args.ecc, args.sutra)
         write_text_output(result, output_path)
 
     elif args.mode == "decrypt":

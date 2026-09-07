@@ -10,3 +10,4 @@ venv/
 # Output
 out.txt
 *.log
+chatgpt-index-backups/

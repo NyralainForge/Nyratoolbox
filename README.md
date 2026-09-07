@@ -21,8 +21,11 @@ Nyratoolbox/
 ├── ChatGPT_Index_Rebuild_Mac      # macOS ChatGPT 本地聊天索引检查、备份、重置与恢复
 ├── F-encrypt               # AES-GCM 加密 / 解密工具，支持文件二进制保真读写和 ECC 纠错
 ├── number_dictionary       # 生成 QQ号与来自真实号段的随机手机号 以及 手机号/QQ号格式邮箱
+├── random_dice             # 组合骰子与自定义区间随机数，支持固定加值和 JSON 输出
 ├── SFZ_dictionary          # 生成 格式合法的 大陆身份证号码
 ├── ShortID_dictionary      # 生成指定长度的十六进制 ShortID 穷举列表
 ├── Subnetting              # IPv4 / IPv6 子网计算、地址规划、ACL wildcard 和 DHCP 地址池工具
 └── README.md               # 项目根目录说明
 ```
+
+组合骰子的参数、表达式语法和调用示例见 [random_dice 使用说明](random_dice/README.md)。

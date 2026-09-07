@@ -82,6 +82,8 @@ class ParsedArgs(NamedTuple):
     input_path: Path | None
     ecc: bool
     sutra: bool
+    recursive: bool
+    delete_source: bool
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
@@ -349,6 +351,8 @@ def parse_args(argv: list[str]) -> ParsedArgs:
     ecc = False
     sutra = False
     literal_text = False
+    recursive = False
+    delete_source = False
 
     i = 0
     while i < len(argv):
@@ -368,6 +372,10 @@ def parse_args(argv: list[str]) -> ParsedArgs:
             ecc = True
         elif arg == "-sutra":
             sutra = True
+        elif arg == "-recursive":
+            recursive = True
+        elif arg == "-delete-source":
+            delete_source = True
         elif arg == "-o":
             i += 1
             if i >= len(argv):
@@ -382,9 +390,21 @@ def parse_args(argv: list[str]) -> ParsedArgs:
 
         i += 1
 
-    input_path = None if literal_text else resolve_input_file(inputs)
+    if recursive:
+        if mode != "encrypt" or literal_text or len(inputs) != 1:
+            raise ValueError("-recursive 仅用于加密一个目录")
+        input_path = Path(inputs[0]).expanduser()
+        if input_path.is_symlink() or not input_path.is_dir():
+            raise ValueError("-recursive 必须指定真实目录")
+    else:
+        input_path = None if literal_text else resolve_input_file(inputs)
+    if delete_source and (mode != "encrypt" or input_path is None):
+        raise ValueError("-delete-source 仅用于文件或目录加密")
+    if delete_source and input_path.is_symlink():
+        raise ValueError("-delete-source 不支持符号链接")
     text = None if input_path else " ".join(inputs) if inputs else None
-    return ParsedArgs(mode, output_path, text, input_path, ecc, sutra)
+    return ParsedArgs(mode, output_path, text, input_path, ecc, sutra,
+                      recursive, delete_source)
 
 
 def resolve_input_file(inputs: list[str]) -> Path | None:
@@ -399,7 +419,7 @@ def resolve_input_file(inputs: list[str]) -> Path | None:
             raise ValueError(f"输入文件不存在：{input_path}")
         return None
     if not input_path.is_file():
-        raise ValueError(f"输入路径不是文件：{input_path}")
+        raise ValueError(f"输入路径不是文件，目录加密需显式指定 -recursive：{input_path}")
 
     suffix = input_path.suffix.lower()
     if suffix not in SUPPORTED_TEXT_SUFFIXES:
@@ -449,14 +469,95 @@ def write_bytes_output(data: bytes, output_path: Path | None) -> None:
         sys.stdout.buffer.write(data)
 
 
-if __name__ == "__main__":
+def directory_jobs(source: Path, destination: Path,
+                   in_place: bool = False) -> list[tuple[Path, Path]]:
+    source = source.resolve()
+    destination = destination.resolve()
+    if (destination == source and not in_place) or source in destination.parents:
+        raise ValueError("输出目录不能位于输入目录内")
+    jobs = []
+    def walk_error(error):
+        raise error
+
+    for current, directories, filenames in os.walk(source, onerror=walk_error):
+        current = Path(current)
+        directories[:] = sorted(name for name in directories
+                                if not (current / name).is_symlink())
+        for name in sorted(filenames):
+            path = current / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            if in_place and name.endswith(".encrypted.txt"):
+                continue
+            relative = path.relative_to(source)
+            output = destination / relative.parent / (relative.name + ".encrypted.txt")
+            if output.exists() or output.is_symlink():
+                raise ValueError(f"输出文件已存在：{output}")
+            # Reject redirected output subdirectories before any files are processed.
+            if destination not in output.resolve().parents:
+                raise ValueError(f"输出路径越过输出目录：{output}")
+            for parent in output.parents:
+                if parent.exists() and not parent.is_dir():
+                    raise ValueError(f"输出路径的父级不是目录：{parent}")
+            jobs.append((path, output))
+    return jobs
+
+
+def encrypt_file(source: Path, output: Path, password: str, args: ParsedArgs) -> None:
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f"输入不是普通文件：{source}")
+    if source.resolve() == output.resolve():
+        raise ValueError("输出文件不能与原文件相同")
+    before = source.stat()
+    data = source.read_bytes()
+    result = encrypt(data, password, args.ecc, args.sutra)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Exclusive creation protects existing ciphertext and hard links to source files.
+    with output.open("xb") as stream:
+        stream.write(result.encode("utf-8"))
+        stream.flush()
+        os.fsync(stream.fileno())
+    if args.delete_source:
+        if decrypt(output.read_bytes().decode("utf-8"), password) != data:
+            raise ValueError(f"密文回读验证失败，保留原文件：{source}")
+        after = source.stat()
+        if (source.is_symlink() or
+                (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns,
+                 before.st_ctime_ns) !=
+                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns,
+                 after.st_ctime_ns) or source.read_bytes() != data):
+            raise ValueError(f"原文件在处理期间发生变化，保留原文件：{source}")
+        source.unlink()
+
+
+def main() -> None:
     try:
         args = parse_args(sys.argv[1:])
     except ValueError as exc:
         print(exc)
         sys.exit(2)
 
+    if args.recursive:
+        in_place = args.delete_source and args.output_path is None
+        destination = (Path(args.output_path).expanduser() if args.output_path
+                       else args.input_path if in_place
+                       else Path.home() / "Desktop" / "out")
+        jobs = directory_jobs(args.input_path, destination, in_place)
+        if not jobs:
+            print("目录中没有可加密的普通文件")
+            return
+        password = getpass("请输入密码: ")
+        for source, output in jobs:
+            encrypt_file(source, output, password, args)
+        print(f"已加密 {len(jobs)} 个文件，输出目录：{destination}")
+        return
+
     output_path = resolve_output_path(args.output_path, args.input_path is not None)
+
+    if args.delete_source:
+        password = getpass("请输入密码: ")
+        encrypt_file(args.input_path, output_path, password, args)
+        return
 
     if args.mode == "encrypt":
         data = read_input_file(args.input_path) if args.input_path else None
@@ -493,3 +594,11 @@ if __name__ == "__main__":
         except Exception:
             print("解密失败：密码错误，或密文内容被篡改。")
             sys.exit(1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError) as exc:
+        print(f"操作失败：{exc}", file=sys.stderr)
+        sys.exit(1)

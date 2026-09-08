@@ -1,5 +1,6 @@
 # AES-GCM 加密工具，默认输出 Base64，使用 -sutra 输出伪经文。
 import base64
+import errno
 import os
 import sys
 from getpass import getpass
@@ -390,9 +391,21 @@ def parse_args(argv: list[str]) -> ParsedArgs:
 
         i += 1
 
+    if not recursive:
+        # Check every positional argument, including literal text after "--".
+        for value in inputs:
+            try:
+                is_directory = Path(value).expanduser().is_dir()
+            except OSError as exc:
+                if exc.errno != errno.ENAMETOOLONG:
+                    raise
+                is_directory = False
+            if is_directory:
+                raise ValueError(f"禁止处理目录：{value}；请显式指定 -recursive")
+
     if recursive:
-        if mode != "encrypt" or literal_text or len(inputs) != 1:
-            raise ValueError("-recursive 仅用于加密一个目录")
+        if literal_text or len(inputs) != 1:
+            raise ValueError("-recursive 必须指定一个目录")
         input_path = Path(inputs[0]).expanduser()
         if input_path.is_symlink() or not input_path.is_dir():
             raise ValueError("-recursive 必须指定真实目录")
@@ -470,7 +483,8 @@ def write_bytes_output(data: bytes, output_path: Path | None) -> None:
 
 
 def directory_jobs(source: Path, destination: Path,
-                   in_place: bool = False) -> list[tuple[Path, Path]]:
+                   in_place: bool = False,
+                   mode: str = "encrypt") -> list[tuple[Path, Path]]:
     source = source.resolve()
     destination = destination.resolve()
     if (destination == source and not in_place) or source in destination.parents:
@@ -487,10 +501,16 @@ def directory_jobs(source: Path, destination: Path,
             path = current / name
             if path.is_symlink() or not path.is_file():
                 continue
-            if in_place and name.endswith(".encrypted.txt"):
+            if mode == "decrypt" and not name.endswith(".encrypted.txt"):
+                continue
+            if mode == "encrypt" and in_place and name.endswith(".encrypted.txt"):
                 continue
             relative = path.relative_to(source)
-            output = destination / relative.parent / (relative.name + ".encrypted.txt")
+            output_name = (relative.name[:-len(".encrypted.txt")] if mode == "decrypt"
+                           else relative.name + ".encrypted.txt")
+            if output_name in ("", ".", ".."):
+                raise ValueError(f"无法恢复原文件名：{path}")
+            output = destination / relative.parent / output_name
             if output.exists() or output.is_symlink():
                 raise ValueError(f"输出文件已存在：{output}")
             # Reject redirected output subdirectories before any files are processed.
@@ -530,6 +550,22 @@ def encrypt_file(source: Path, output: Path, password: str, args: ParsedArgs) ->
         source.unlink()
 
 
+def decrypt_file(source: Path, output: Path, password: str) -> None:
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f"输入不是普通文件：{source}")
+    if source.resolve() == output.resolve():
+        raise ValueError("输出文件不能与密文文件相同")
+    try:
+        data = decrypt(ciphertext_bytes_to_text(source.read_bytes()), password)
+    except (ValueError, InvalidTag) as exc:
+        raise ValueError(f"解密失败，密码错误或密文损坏：{source}") from exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("xb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def main() -> None:
     try:
         args = parse_args(sys.argv[1:])
@@ -542,14 +578,18 @@ def main() -> None:
         destination = (Path(args.output_path).expanduser() if args.output_path
                        else args.input_path if in_place
                        else Path.home() / "Desktop" / "out")
-        jobs = directory_jobs(args.input_path, destination, in_place)
+        jobs = directory_jobs(args.input_path, destination, in_place, args.mode)
+        action = "加密" if args.mode == "encrypt" else "解密"
         if not jobs:
-            print("目录中没有可加密的普通文件")
+            print(f"目录中没有可{action}的文件")
             return
         password = getpass("请输入密码: ")
         for source, output in jobs:
-            encrypt_file(source, output, password, args)
-        print(f"已加密 {len(jobs)} 个文件，输出目录：{destination}")
+            if args.mode == "encrypt":
+                encrypt_file(source, output, password, args)
+            else:
+                decrypt_file(source, output, password)
+        print(f"已{action} {len(jobs)} 个文件，输出目录：{destination}")
         return
 
     output_path = resolve_output_path(args.output_path, args.input_path is not None)

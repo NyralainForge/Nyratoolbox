@@ -34,7 +34,7 @@ python3 -m pip install cryptography
 -decrypt        解密模式
 -ecc            加密时启用 ECC 自动纠错编码
 -sutra          加密时输出伪经文；不指定则输出 Base64
--recursive      允许递归加密一个目录（默认禁止目录输入）
+-recursive      允许递归加密或解密一个目录（默认禁止目录输入）
 -delete-source  加密并验证密文后删除对应原文件（默认保留）
 -o OUTPUT       指定输出路径和文件名
 --              后续参数全部按直接文本处理（包括以 - 开头的密文）
@@ -139,9 +139,11 @@ cat secret.txt | python3 F-encrypt.py -decrypt -o restored.conf
 
 ## 输出行为
 
-### 递归加密目录
+### 递归处理目录
 
-`-recursive` 仅用于加密目录，递归处理所有普通文件，包括无后缀和二进制文件；单文件模式的后缀限制仍保持不变。符号链接及其他非普通文件跳过，不跟随符号链接目录。整个批次只输入一次密码。
+`-recursive` 支持目录加密和解密。加密时处理所有普通文件，包括无后缀和二进制文件；解密时仅处理以 `.encrypted.txt` 结尾的文件。单文件模式的后缀限制仍保持不变。符号链接及其他非普通文件跳过，不跟随符号链接目录。整个批次只输入一次密码。
+
+未指定 `-recursive` 时，任何输入参数指向已存在的目录都会在输入密码前报错，包括目录与其他文本混用、目录符号链接，以及 `--` 后的目录路径。`--` 不能绕过此检查。`-recursive` 必须显式提供且目标为一个真实目录；参数位于目录路径之前或之后均可。
 
 ```bash
 python3 F-encrypt.py -encrypt ./configs -recursive -o ./encrypted
@@ -152,7 +154,13 @@ python3 F-encrypt.py -encrypt ./configs -recursive -sutra -ecc -o ./encrypted
 
 密文文件名在原文件名后追加 `.encrypted.txt`。指定输出目录时保留相对目录结构，例如 `configs/sub/app.yaml` 输出为 `encrypted/sub/app.yaml.encrypted.txt`；原目录输出时则生成 `configs/sub/app.yaml.encrypted.txt`。原目录模式跳过已有的 `.encrypted.txt` 文件，避免再次加密。除这一默认原目录模式外，输出目录不得等于输入目录或位于其内部。已有同名输出文件会报错，目录内为空时不生成密文。
 
-解密仍按文件进行，自动识别格式：
+递归解密自动识别 Base64、伪经文和 ECC，去掉文件名最后的 `.encrypted.txt` 后缀，并按原始 bytes 恢复内容及相对目录结构。未指定 `-o` 时输出到 `~/Desktop/out`，同名输出文件会报错。密文保留，`-delete-source` 仍仅用于加密。遇到错误密码或损坏密文时停止，当前文件不会输出未经认证的明文，已完成的文件保留。
+
+```bash
+python3 F-encrypt.py -decrypt ./encrypted -recursive -o ./restored
+```
+
+也可以按单文件解密：
 
 ```bash
 python3 F-encrypt.py -decrypt ./encrypted/sub/app.yaml.encrypted.txt -o ./restored/app.yaml

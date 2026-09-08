@@ -93,12 +93,49 @@ class FormatTests(unittest.TestCase):
 
 
 class DirectoryTests(unittest.TestCase):
+    def test_all_directory_arguments_require_recursive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "folder with spaces"
+            target.mkdir()
+            link = root / "linked"
+            link.symlink_to(target, target_is_directory=True)
+            output = root / "result.txt"
+            cases = [
+                [str(target)], ["-encrypt", str(target)],
+                ["-encrypt", str(target) + "/"],
+                ["-encrypt", str(link)],
+                ["-encrypt", str(target), "extra"],
+                ["-encrypt", "extra", str(target)],
+                ["-encrypt", "--", str(target)],
+                ["-encrypt", "-delete-source", str(target)],
+                ["-encrypt", "."],
+            ]
+            for arguments in cases:
+                with self.subTest(arguments=arguments):
+                    with self.assertRaisesRegex(ValueError, "-recursive"):
+                        app.parse_args(arguments)
+                    with patch.object(sys, "argv", [
+                        str(SCRIPT), "-o", str(output), *arguments
+                    ]), patch("getpass.getpass") as password, contextlib.redirect_stdout(
+                        io.StringIO()
+                    ), self.assertRaises(SystemExit) as stopped:
+                        runpy.run_path(str(SCRIPT), run_name="__main__")
+                    self.assertEqual(stopped.exception.code, 2)
+                    password.assert_not_called()
+                    self.assertFalse(output.exists())
+            for arguments in (["-encrypt", "-recursive", str(target)],
+                              ["-encrypt", str(target), "-recursive"]):
+                self.assertTrue(app.parse_args(arguments).recursive)
+            self.assertEqual(app.parse_args(["-encrypt", "--", "x" * 4096]).text,
+                             "x" * 4096)
+
     def test_directory_requires_flag_and_valid_delete_input(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 app.parse_args(["-encrypt", directory])
             for argv in (["-delete-source", "hello"],
-                         ["-decrypt", "-recursive", directory],
+                         ["-decrypt", "-recursive", directory, "-delete-source"],
                          ["-recursive", "hello"],
                          ["-delete-source", "-decrypt", "--", "hello"]):
                 with self.assertRaises(ValueError):
@@ -131,6 +168,61 @@ class DirectoryTests(unittest.TestCase):
                         cipher = output / (relative + ".encrypted.txt")
                         self.assertEqual(app.decrypt(cipher.read_text(), "password"), data)
                         self.assertEqual((source / relative).exists(), not delete)
+
+    def test_recursive_decrypt_mixed_formats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "cipher"
+            (source / "nested").mkdir(parents=True)
+            output = root / "restored"
+            expected = {}
+            for index, (sutra, ecc) in enumerate(
+                    ((False, False), (False, True), (True, False), (True, True))):
+                name = f"nested/file{index}.conf"
+                data = bytes(range(256)) if index else b""
+                text = app.encrypt(data, "password", ecc, sutra)
+                if ecc:
+                    start = len(app.PREFIX) if sutra else 0
+                    text = text[:start] + "?" + text[start + 1:]
+                (source / (name + ".encrypted.txt")).write_text(text, encoding="utf-8")
+                expected[name] = data
+            (source / "notes.md").write_text("ignore")
+            argv = [str(SCRIPT), "-decrypt", "-recursive", str(source), "-o", str(output)]
+            with patch.object(sys, "argv", argv), patch(
+                "getpass.getpass", return_value="password"
+            ) as password, contextlib.redirect_stdout(io.StringIO()):
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+            password.assert_called_once()
+            for name, data in expected.items():
+                self.assertEqual((output / name).read_bytes(), data)
+                self.assertTrue((source / (name + ".encrypted.txt")).exists())
+            self.assertFalse((output / "notes.md").exists())
+            with self.assertRaises(ValueError):
+                app.directory_jobs(source, output, mode="decrypt")
+            with self.assertRaises(ValueError):
+                app.parse_args(["-decrypt", str(source)])
+
+    def test_recursive_decrypt_failures_and_default_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "cipher"
+            source.mkdir()
+            cipher = source / "a.encrypted.txt"
+            cipher.write_text(app.encrypt(b"original", "password"))
+            output = root / "failed"
+            with self.assertRaises(ValueError):
+                app.decrypt_file(cipher, output, "wrong")
+            self.assertFalse(output.exists())
+            argv = [str(SCRIPT), "-decrypt", "-recursive", str(source)]
+            with patch.object(sys, "argv", argv), patch.object(Path, "home", return_value=root), patch(
+                "getpass.getpass", return_value="password"
+            ), contextlib.redirect_stdout(io.StringIO()):
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+            self.assertEqual((root / "Desktop/out/a").read_bytes(), b"original")
+            self.assertTrue(cipher.exists())
+            (source / ".encrypted.txt").write_text("invalid filename")
+            with self.assertRaises(ValueError):
+                app.directory_jobs(source, root / "other", mode="decrypt")
 
     def test_output_guards_and_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
